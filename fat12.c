@@ -2,61 +2,61 @@
 #include <stdint.h>
 #include <string.h>
 
-#define SECTOR_SIZE (512U)
-#define MAX_FILENAME_LENGTH 8
-#define MAX_EXTENSION_LENGTH 3
+#define SECTOR_SIZE            (512U)
+#define MAX_FILENAME_LENGTH    8
+#define MAX_EXTENSION_LENGTH   3
 
 #pragma pack(push, 1) // exact fit - no padding
 typedef struct
 {
-    uint8_t jmp[3];
-    char oem[8];
-    uint16_t bytes_per_sector;
-    uint8_t sectors_per_cluster;
-    uint16_t reserved_sectors;
-    uint8_t number_of_fats;
-    uint16_t root_dir_entries;
-    uint16_t total_sectors_short; // if zero, later field is used
-    uint8_t media_descriptor;
-    uint16_t fat_size_sectors;
-    uint16_t sectors_per_track;
-    uint16_t number_of_heads;
-    uint32_t hidden_sectors;
-    uint32_t total_sectors_long;
+    uint8_t     jmp[3];
+    char        oem[8];
+    uint16_t    bytes_per_sector;
+    uint8_t     sectors_per_cluster;
+    uint16_t    reserved_sectors;
+    uint8_t     number_of_fats;
+    uint16_t    root_dir_entries;
+    uint16_t    total_sectors_short; // if zero, later field is used
+    uint8_t     media_descriptor;
+    uint16_t    fat_size_sectors;
+    uint16_t    sectors_per_track;
+    uint16_t    number_of_heads;
+    uint32_t    hidden_sectors;
+    uint32_t    total_sectors_long;
 
     // used by FAT12 and FAT16
-    uint8_t drive_number;
-    uint8_t current_head;
-    uint8_t boot_signature;
-    uint32_t volume_id;
-    char volume_label[11];
-    char fs_type[8]; // typically contains "FAT12   "
+    uint8_t     drive_number;
+    uint8_t     current_head;
+    uint8_t     boot_signature;
+    uint32_t    volume_id;
+    char        volume_label[11];
+    char        fs_type[8]; // typically contains "FAT12   "
 } __attribute__((packed)) Fat12BootData;
 #pragma pack(pop)
 
-typedef struct {
-    uint16_t year;
-    uint8_t month;
-    uint8_t day;
-    uint8_t hour;
-    uint8_t minute;
-    uint8_t second;
+typedef struct
+{
+    uint16_t    year;
+    uint8_t     month;
+    uint8_t     day;
+    uint8_t     hour;
+    uint8_t     minute;
+    uint8_t     second;
 } Fat12DateTime;
 
-typedef struct {
-    uint8_t filename[MAX_FILENAME_LENGTH + 1]; // +1 for null terminator
-    uint8_t extension[MAX_EXTENSION_LENGTH + 1]; // +1 for null terminator
-    uint8_t attributes;
-    Fat12DateTime creationTime;
-    Fat12DateTime lastAccessTime;
-    Fat12DateTime lastModifiedTime;
-    uint16_t startCluster;
-    uint32_t fileSize;
+typedef struct
+{
+    uint8_t         filename[MAX_FILENAME_LENGTH + 1];   // +1 for null terminator
+    uint8_t         extension[MAX_EXTENSION_LENGTH + 1]; // +1 for null terminator
+    uint8_t         attributes;
+    Fat12DateTime   creationTime;
+    Fat12DateTime   lastAccessTime;
+    Fat12DateTime   lastModifiedTime;
+    uint16_t        startCluster;
+    uint32_t        fileSize;
 } Fat12Entry;
 
-
-
-static FILE* ptr;
+static FILE * ptr;
 static Fat12BootData BootData;
 
 void readFat12Entry(uint8_t *entryData, Fat12Entry *entry);
@@ -65,7 +65,8 @@ void convertFat12DateTime(uint16_t time, uint16_t date, Fat12DateTime *dateTime)
 void printFat12Entry(Fat12Entry *entry);
 void FAT_Read_RootDir();
 
-void HAL_OpenDisk(const uint8_t* DiskPath)
+// Open Disk
+void HAL_OpenDisk(const uint8_t *DiskPath)
 {
     ptr = fopen(DiskPath, "rb");
 
@@ -75,12 +76,14 @@ void HAL_OpenDisk(const uint8_t* DiskPath)
     }
 }
 
+// Close Disk
 void HAL_CloseDisk(void)
 {
     fclose(ptr);
 }
 
-void HAL_Read_Sector(uint32_t index, uint8_t* buffer)
+// Read Boot Sector 
+void HAL_Read_Sector(uint32_t index, Fat12BootData *buffer)
 {
     uint32_t sector_offset = index * SECTOR_SIZE;
 
@@ -88,27 +91,34 @@ void HAL_Read_Sector(uint32_t index, uint8_t* buffer)
     fread(buffer, 1, SECTOR_SIZE, ptr);
 }
 
+// Traverse all Entries in Root Directory and read it
 void FAT_Read_RootDir()
 {
-    uint8_t buffer[SECTOR_SIZE];
-    uint32_t rootDirSectorCount = ((BootData.root_dir_entries * 32) + (BootData.bytes_per_sector - 1)) / BootData.bytes_per_sector;
-    uint32_t rootDirStartSector = BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors);
+    uint8_t    buffer[SECTOR_SIZE];
+    uint32_t   rootDirSectorCount = ((BootData.root_dir_entries * 32) + (BootData.bytes_per_sector - 1)) / BootData.bytes_per_sector;
+    uint32_t   rootDirStartSector = BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors);
     fseek(ptr, rootDirStartSector * BootData.bytes_per_sector, SEEK_SET);
 
     uint32_t i;
     uint32_t j;
-    for (i = 0; i < rootDirSectorCount; i++) {
+    for (i = 0; i < rootDirSectorCount; i++)
+    {
         fread(buffer, SECTOR_SIZE, 1, ptr);
-        for (j = 0; j < SECTOR_SIZE; j += 32) {
-            if (buffer[j] == 0x00) {
+
+        for (j = 0; j < SECTOR_SIZE; j += 32)
+        {
+            if (buffer[j] == 0x00)
+            {
                 // End of directory entries
                 break;
             }
-            if (buffer[j] == 0xE5) {
+            if (buffer[j] == 0xE5)
+            {
                 // Unused entry
                 continue;
             }
-            if (buffer[j + 11] == 0x0F) {
+            if (buffer[j + 11] == 0x0F)
+            {
                 // Long filename entry
                 continue;
             }
@@ -121,6 +131,7 @@ void FAT_Read_RootDir()
     }
 }
 
+//  Get data in each entry
 void readFat12Entry(uint8_t *entryData, Fat12Entry *entry)
 {
     // Copy the filename and extension
@@ -143,38 +154,43 @@ void readFat12Entry(uint8_t *entryData, Fat12Entry *entry)
 void convertFat12DateTime(uint16_t date, uint16_t time, Fat12DateTime *dateTime)
 {
     // Extract the year, month, and day from the date
-    dateTime->year = ((date >> 9) & 0x7f) + 1980;
+    dateTime->year  = ((date >> 9) & 0x7f) + 1980;
     dateTime->month = (date >> 5) & 0x0f;
-    dateTime->day = date & 0x1f;
+    dateTime->day   = date & 0x1f;
 
     // Extract the hour, minute, and second from the time
-    dateTime->hour = (time >> 11) & 0x1f;
+    dateTime->hour   = (time >> 11) & 0x1f;
     dateTime->minute = (time >> 5) & 0x3f;
     dateTime->second = (time & 0x1f) * 2;
 }
 
-void convertFilename(uint8_t *name, uint8_t *filename, uint8_t *extension) {
+void convertFilename(uint8_t *name, uint8_t *filename, uint8_t *extension)
+{
     // Convert the filename to a null-terminated string
     uint32_t i;
     uint32_t j;
-    for (i = 0; i < MAX_FILENAME_LENGTH && name[i] != ' '; i++) {
+    for (i = 0; i < MAX_FILENAME_LENGTH && name[i] != ' '; i++)
+    {
         filename[i] = name[i];
     }
     filename[i] = '\0';
-    
+
     // Convert the extension to a null-terminated string
-    for (j = 0; j < MAX_EXTENSION_LENGTH && extension[j] != ' '; j++) {
+    for (j = 0; j < MAX_EXTENSION_LENGTH && extension[j] != ' '; j++)
+    {
         extension[j] = extension[j];
     }
     extension[j] = '\0';
-    
+
     // If the extension is not empty, append it to the filename
-    if (extension[0] != '\0') {
+    if (extension[0] != '\0')
+    {
         strcat(filename, ".");
         strcat(filename, extension);
     }
 }
 
+// Display the status of all File/Subdirectory is read 
 void printFat12Entry(Fat12Entry *entry)
 {
     printf("%s.%s\t", entry->filename, entry->extension);
@@ -196,10 +212,11 @@ void printFat12Entry(Fat12Entry *entry)
     printf("%lu\n", entry->fileSize);
 }
 
+
 void main()
 {
 
-    HAL_OpenDisk("C://Study//Embedded Develop//C-MockProject//floppy.img");
+    HAL_OpenDisk("D://EMBEDDED_SOFTWARE_Course//FAT_file//floppy.img"); // "C://Study//Embedded Develop//C-MockProject//floppy.img"
 
     HAL_Read_Sector(0, &BootData);
 
