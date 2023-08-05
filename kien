@@ -12,6 +12,7 @@
 
 #pragma pack(push, 1) // exact fit - no padding
     uint16_t startClusterArray[10];
+    uint16_t startClusterfolderArray[10];
 typedef struct
 {
     uint8_t jmp[3];
@@ -59,17 +60,30 @@ typedef struct {
     uint32_t fileSize;
 } Fat12Entry;
 
-
+typedef struct {
+    uint8_t filename[MAX_FILENAME_LENGTH + 1];
+    uint8_t extension[MAX_EXTENSION_LENGTH + 1];
+    uint8_t attributes;
+    Fat12DateTime creationTime;
+    Fat12DateTime lastAccessTime;
+    Fat12DateTime lastModifiedTime;
+    uint16_t startCluster;
+} Fat12EntryFolder;
 
 static FILE* ptr;
 static Fat12BootData BootData;
+Fat12Entry entry;
 
 void readFat12Entry(uint8_t *entryData, Fat12Entry *entry);
 void convertFilename(uint8_t *name, uint8_t *filename, uint8_t *extension);
 void convertFat12DateTime(uint16_t time, uint16_t date, Fat12DateTime *dateTime);
 void printFat12Entry(Fat12Entry *entry);
 void FAT_Read_RootDir();
-int addData( int i);
+void FAT_READ_FOLDER(uint32_t folderStartCluster);
+int address_content( int i);
+
+
+
 //void FAT_Read_File(int fileCluster, int fileSize, FILE* fp) ;
 void HAL_OpenDisk()
 {
@@ -96,6 +110,7 @@ void HAL_Read_Sector(uint32_t index, Fat12BootData* buffer)
 
 void FAT_Read_RootDir()
 {
+	
     uint8_t buffer[SECTOR_SIZE];
     uint32_t rootDirSectorCount = ((BootData.root_dir_entries * 32) + (BootData.bytes_per_sector - 1)) / BootData.bytes_per_sector;
     uint32_t rootDirStartSector = BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors);
@@ -107,7 +122,7 @@ void FAT_Read_RootDir()
     // M?ng d? luu start cluster
 
     uint32_t entryCount = 0;
-
+	
     for (i = 0; i < rootDirSectorCount; i++) {
         fread(buffer, SECTOR_SIZE, 1, ptr);
         for (j = 0; j < SECTOR_SIZE; j += 32) {
@@ -123,21 +138,32 @@ void FAT_Read_RootDir()
                 // Long filename entry
                 continue;
             }
-            Fat12Entry entry;
+            if (buffer[j + 11] == 0x10) {
+                // folder
+            	
+            }
+            if (buffer[j] == 0x2E)
+			{
+                // Long filename entry
+                continue;
+            }
+            
+            if (buffer[j + 1] == 0x2E) 
+            {
+            	continue;
+			}
+            
+
             readFat12Entry(&buffer[j], &entry);
             uint8_t filename[MAX_FILENAME_LENGTH + MAX_EXTENSION_LENGTH + 2];
             convertFilename(&buffer[j], filename, entry.extension);
             printFat12Entry(&entry);
             
-            // Luu start cluster vào m?ng
+            // Luu start cluster vào mang
             startClusterArray[entryCount] = entry.startCluster;
             entryCount++;
         }
-        
     }
-
-    // In ra giá tr? start cluster t? m?ng
-
 }
 
 void readFat12Entry(uint8_t *entryData, Fat12Entry *entry)
@@ -177,8 +203,9 @@ void convertFilename(uint8_t *name, uint8_t *filename, uint8_t *extension) {
     uint32_t i;
     uint32_t j;
     for (i = 0; i < MAX_FILENAME_LENGTH && name[i] != ' '; i++) {
-        filename[i] = name[i];
+		filename[i] = name[i];
     }
+
     filename[i] = '\0';
     
     // Convert the extension to a null-terminated string
@@ -213,74 +240,115 @@ void printFat12Entry(Fat12Entry *entry)
            (entry->lastModifiedTime.year)+1980, entry->lastModifiedTime.month, entry->lastModifiedTime.day,
            entry->lastModifiedTime.hour, entry->lastModifiedTime.minute, entry->lastModifiedTime.second);
     printf("%lu\n", entry->fileSize);
-    //printf("%x\n", entry->startCluster);
+    //printf("%d", BootData.fat_size_sectors);
+    printf("%x\n", entry->startCluster);
 }
-void readFromOffset(FILE* file, long offset, int size) {
-    fseek(file, offset, SEEK_SET);
-    char* buffer = (char*)malloc(size);
-    fread(buffer, size, 1, file);
+//******************************************** READ CONTENT FILE*******************************************************
+void Fat_read_FileContent(uint32_t offset)
+{
+    fseek(ptr, offset, SEEK_SET);
+    char* buffer = (char*)malloc(SECTOR_SIZE);
+    fread(buffer, SECTOR_SIZE, 1, ptr);
     printf("%s", buffer);
     free(buffer);
 }
-//void FAT_Read_Cluster(int clusterNumber, char* buffer) {
-//    // Gi? d?nh chúng ta có m?t m?ng các c?m (clusters) luu tr? d? li?u
-//    char simulatedFAT[100][CLUSTER_SIZE];
-//
-//    // Kiem tra xem clusterNumber có hop li không
-//    if (clusterNumber >= 0 && clusterNumber < 100) {
-//        // Ssao cheo vao buffer
-//        memcpy(buffer, simulatedFAT[clusterNumber], CLUSTER_SIZE);
-//    } else {
-//        printf("Invalid cluster number\n");
-//    }
-//}
 
-int addData( int i)
+// **********************************************************READ FOLDER***************************************************************
+void FAT_Read_Folder(uint32_t folderStartSector) {
+    uint8_t buffer[SECTOR_SIZE];
+    //uint32_t folderStartSector = BootData.bytes_per_sector*(((folderStartCluster - 2) * BootData.sectors_per_cluster) + (BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors))+ (BootData.root_dir_entries * 32 / BootData.bytes_per_sector));
+
+    fseek(ptr, folderStartSector , SEEK_SET);
+
+    uint32_t i;
+
+    for (i = 0; i < BootData.sectors_per_cluster; i++)
+	{
+        fread(buffer, SECTOR_SIZE, 1, ptr);
+        uint32_t j;
+
+        for (j = 0; j < SECTOR_SIZE; j += 32)
+		{
+            if (buffer[j] == 0x00)
+			{
+                // End of directory entries
+                break;
+            }
+            
+            if (buffer[j] == 0xE5)
+			{
+                // Unused entry
+                continue;
+            }
+            
+            
+            if (buffer[j + 11] == 0x0F)
+			{
+                // Long filename entry
+                continue;
+            }
+            
+            Fat12EntryFolder entry3;
+            readFat12Entry(&buffer[j], (Fat12Entry*)&entry3);
+            uint8_t filename[MAX_FILENAME_LENGTH + MAX_EXTENSION_LENGTH + 2];
+            convertFilename(&buffer[j], filename, entry3.extension);
+            printFat12Entry((Fat12Entry*)&entry3);
+        }
+    }
+}
+//*************************************** CALCULATOR ADDRESS CONTENT *************************************************************
+int address_FileContent( int i)
 {
 	uint32_t data_region_start_sector = BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors) + (BootData.root_dir_entries * 32 / BootData.bytes_per_sector);
 	
-	uint32_t AddData = (((startClusterArray[i] -2) * BootData.sectors_per_cluster) + data_region_start_sector)*512;
+	uint32_t offsetFile = (((startClusterArray[i] - 2) * BootData.sectors_per_cluster) + data_region_start_sector)*512;
 	
-	
-	return AddData;
+	return offsetFile;
 }
+
+
 
 void EnterChoice()
 {
-	uint8_t choice;
-	int AddData;
+	
+	uint32_t localData;
 	while(1)
 	{
+		char choice;
 		printf("\nEnter Choice: ");
-		scanf("%c",&choice);
+		fflush(stdin);
+		scanf(" %c",&choice);
+		fflush(stdin);
 		switch (choice)
 		{
 			case '1':
-				//clearScreen();
-				AddData = addData(0);
-				readFromOffset(ptr, AddData, 512);
+				localData = address_FileContent(0);
+				Fat_read_FileContent(localData);
 				break;
 			case '2':
-				AddData = addData(1);
-				readFromOffset(ptr, AddData, 512);
+				localData = address_FileContent(1);
+				Fat_read_FileContent(localData);
 				break;
 			case '3':
-				AddData = addData(2);
-				readFromOffset(ptr, AddData, 512);
+				localData = address_FileContent(2);
+				Fat_read_FileContent(localData);
 				break;
 			case '4':
-				AddData = addData(3);
-				readFromOffset(ptr, AddData, 512);
+				localData = address_FileContent(3);
+				Fat_read_FileContent(localData);
+				break;
+			case '5':
+				localData = address_FileContent(5);
+				FAT_Read_Folder(localData);
 				break;
 		}
 	}
-
 }
 void main()
 {
     HAL_OpenDisk();
     HAL_Read_Sector(0, &BootData);
-	FAT_Read_RootDir();
-    EnterChoice();
+    FAT_Read_RootDir();
+   	EnterChoice();
     HAL_CloseDisk();
 }
