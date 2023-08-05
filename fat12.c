@@ -4,46 +4,46 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
-#define SECTOR_SIZE (512U)
-#define MAX_FILENAME_LENGTH 8
-#define MAX_EXTENSION_LENGTH 3
+#define SECTOR_SIZE            (512U)
+#define MAX_FILENAME_LENGTH    8
+#define MAX_EXTENSION_LENGTH   3
 
 #pragma pack(push, 1) // exact fit - no padding
 typedef struct
 {
-    uint8_t jmp[3];
-    char oem[8];
-    uint16_t bytes_per_sector;
-    uint8_t sectors_per_cluster;
-    uint16_t reserved_sectors;
-    uint8_t number_of_fats;
-    uint16_t root_dir_entries;
-    uint16_t total_sectors_short; // if zero, later field is used
-    uint8_t media_descriptor;
-    uint16_t fat_size_sectors;
-    uint16_t sectors_per_track;
-    uint16_t number_of_heads;
-    uint32_t hidden_sectors;
-    uint32_t total_sectors_long;
+    uint8_t     jmp[3];
+    char        oem[8];
+    uint16_t    bytes_per_sector;
+    uint8_t     sectors_per_cluster;
+    uint16_t    reserved_sectors;
+    uint8_t     number_of_fats;
+    uint16_t    root_dir_entries;
+    uint16_t    total_sectors_short; // if zero, later field is used
+    uint8_t     media_descriptor;
+    uint16_t    fat_size_sectors;
+    uint16_t    sectors_per_track;
+    uint16_t    number_of_heads;
+    uint32_t    hidden_sectors;
+    uint32_t    total_sectors_long;
 
     // used by FAT12 and FAT16
-    uint8_t drive_number;
-    uint8_t current_head;
-    uint8_t boot_signature;
-    uint32_t volume_id;
-    char volume_label[11];
-    char fs_type[8]; // typically contains "FAT12   "
+    uint8_t     drive_number;
+    uint8_t     current_head;
+    uint8_t     boot_signature;
+    uint32_t    volume_id;
+    char        volume_label[11];
+    char        fs_type[8]; // typically contains "FAT12   "
 } __attribute__((packed)) Fat12BootData;
 #pragma pack(pop)
 
 typedef struct
 {
-    uint16_t year;
-    uint8_t month;
-    uint8_t day;
-    uint8_t hour;
-    uint8_t minute;
-    uint8_t second;
+    uint16_t    year;
+    uint8_t     month;
+    uint8_t     day;
+    uint8_t     hour;
+    uint8_t     minute;
+    uint8_t     second;
 } Fat12DateTime;
 
 typedef struct
@@ -72,6 +72,7 @@ void FAT_Read_Directory(uint32_t startSector, uint8_t* numFiles);
 void FAT_Get_StartCluster(uint32_t* startSector, uint8_t selectedFile, uint8_t* startCluster);
 
 
+// Open Disk
 void HAL_OpenDisk(const uint8_t *DiskPath)
 {
     ptr = fopen(DiskPath, "rb");
@@ -82,6 +83,7 @@ void HAL_OpenDisk(const uint8_t *DiskPath)
     }
 }
 
+// Close Disk
 void HAL_CloseDisk(void)
 {
     fclose(ptr);
@@ -98,9 +100,9 @@ void HAL_Read_Sector(uint32_t index, uint8_t *buffer)
 void FAT_Read_Directory(uint32_t startSector, uint8_t* numFiles)
 {
     uint8_t buffer[SECTOR_SIZE];
-    HAL_Read_Sector(startSector, buffer);
-
-    // printf("Filename  File Extension\tCreation Date\tLast Access Date\tLast Write Time\tFile Size\n");
+    uint32_t rootDirSectorCount = ((BootData.root_dir_entries * 32) + (BootData.bytes_per_sector - 1)) / BootData.bytes_per_sector;
+    uint32_t rootDirStartSector = BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors);
+    fseek(ptr, rootDirStartSector * BootData.bytes_per_sector, SEEK_SET);
 
     // (*numFiles) = 0;
     uint32_t j;
@@ -234,6 +236,7 @@ void Menu()
     HAL_CloseDisk();
 }
 
+//  Get data in each entry
 void readFat12Entry(uint8_t *entryData, Fat12Entry *entry)
 {
     // Copy the filename and extension
@@ -256,12 +259,12 @@ void readFat12Entry(uint8_t *entryData, Fat12Entry *entry)
 void convertFat12DateTime(uint16_t date, uint16_t time, Fat12DateTime *dateTime)
 {
     // Extract the year, month, and day from the date
-    dateTime->year = ((date >> 9) & 0x7f) + 1980;
+    dateTime->year  = ((date >> 9) & 0x7f) + 1980;
     dateTime->month = (date >> 5) & 0x0f;
-    dateTime->day = date & 0x1f;
+    dateTime->day   = date & 0x1f;
 
     // Extract the hour, minute, and second from the time
-    dateTime->hour = (time >> 11) & 0x1f;
+    dateTime->hour   = (time >> 11) & 0x1f;
     dateTime->minute = (time >> 5) & 0x3f;
     dateTime->second = (time & 0x1f) * 2;
 }
@@ -271,6 +274,7 @@ void convertFilename(uint8_t *name, uint8_t *filename, uint8_t *extension)
     // Convert the filename to a null-terminated string
     uint32_t i;
     uint32_t j;
+
     for (i = 0; i < MAX_FILENAME_LENGTH && name[i] != ' '; i++)
     {
         filename[i] = name[i];
@@ -278,6 +282,7 @@ void convertFilename(uint8_t *name, uint8_t *filename, uint8_t *extension)
     filename[i] = '\0';
 
     // Convert the extension to a null-terminated string
+
     for (j = 0; j < MAX_EXTENSION_LENGTH && extension[j] != ' '; j++)
     {
         extension[j] = extension[j];
@@ -320,6 +325,7 @@ void printFat12Entry(Fat12Entry *entry, uint8_t numFiles)
         printf("\n");
     }
 }
+
 
 void main()
 {
