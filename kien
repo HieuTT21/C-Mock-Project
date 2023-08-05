@@ -60,16 +60,6 @@ typedef struct {
     uint32_t fileSize;
 } Fat12Entry;
 
-typedef struct {
-    uint8_t filename[MAX_FILENAME_LENGTH + 1];
-    uint8_t extension[MAX_EXTENSION_LENGTH + 1];
-    uint8_t attributes;
-    Fat12DateTime creationTime;
-    Fat12DateTime lastAccessTime;
-    Fat12DateTime lastModifiedTime;
-    uint16_t startCluster;
-} Fat12EntryFolder;
-
 static FILE* ptr;
 static Fat12BootData BootData;
 Fat12Entry entry;
@@ -142,17 +132,6 @@ void FAT_Read_RootDir()
                 // folder
             	
             }
-            if (buffer[j] == 0x2E)
-			{
-                // Long filename entry
-                continue;
-            }
-            
-            if (buffer[j + 1] == 0x2E) 
-            {
-            	continue;
-			}
-            
 
             readFat12Entry(&buffer[j], &entry);
             uint8_t filename[MAX_FILENAME_LENGTH + MAX_EXTENSION_LENGTH + 2];
@@ -281,6 +260,16 @@ void FAT_Read_Folder(uint32_t folderStartSector) {
                 continue;
             }
             
+            if (buffer[j] == 0x2E)
+			{
+                // Long filename entry
+                continue;
+            }
+            
+            if (buffer[j + 1] == 0x2E) 
+            {
+            	continue;
+			}
             
             if (buffer[j + 11] == 0x0F)
 			{
@@ -288,11 +277,11 @@ void FAT_Read_Folder(uint32_t folderStartSector) {
                 continue;
             }
             
-            Fat12EntryFolder entry3;
-            readFat12Entry(&buffer[j], (Fat12Entry*)&entry3);
+            Fat12Entry entryFolder;
+            readFat12Entry(&buffer[j], &entryFolder);
             uint8_t filename[MAX_FILENAME_LENGTH + MAX_EXTENSION_LENGTH + 2];
-            convertFilename(&buffer[j], filename, entry3.extension);
-            printFat12Entry((Fat12Entry*)&entry3);
+            convertFilename(&buffer[j], filename, entryFolder.extension);
+            printFat12Entry(&entryFolder);
         }
     }
 }
