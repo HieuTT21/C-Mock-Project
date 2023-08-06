@@ -8,6 +8,17 @@
 #define MAX_FILENAME_LENGTH    8
 #define MAX_EXTENSION_LENGTH   3
 
+typedef struct Node 
+{
+    uint32_t currentAddress;
+    struct Node* next;
+} Node_t;
+
+typedef struct 
+{
+    Node_t* head;
+} LinkedList_t;
+
 #pragma pack(push, 1) // exact fit - no padding
 typedef struct
 {
@@ -48,15 +59,15 @@ typedef struct
 
 typedef struct
 {
-    uint8_t filename[MAX_FILENAME_LENGTH + 1];   // +1 for null terminator
-    uint8_t extension[MAX_EXTENSION_LENGTH + 1]; // +1 for null terminator
-    uint8_t attributes;
-    Fat12DateTime creationTime;
-    Fat12DateTime lastAccessTime;
-    Fat12DateTime lastModifiedTime;
-    uint16_t startCluster;
-    uint32_t fileSize;
-    bool isDirectory;
+    uint8_t         filename[MAX_FILENAME_LENGTH + 1];   // +1 for null terminator
+    uint8_t         extension[MAX_EXTENSION_LENGTH + 1]; // +1 for null terminator
+    uint8_t         attributes;
+    Fat12DateTime   creationTime;
+    Fat12DateTime   lastAccessTime;
+    Fat12DateTime   lastModifiedTime;
+    uint16_t        startCluster;
+    uint32_t        fileSize;
+    bool            isDirectory;
 } Fat12Entry;
 
 static FILE *ptr;
@@ -69,8 +80,57 @@ void convertFilename(uint8_t *name, uint8_t *filename, uint8_t *extension);
 void convertFat12DateTime(uint16_t time, uint16_t date, Fat12DateTime *dateTime);
 void printFat12Entry(Fat12Entry *entry, uint8_t numFiles);
 void FAT_Read_Directory(uint32_t startSector, uint8_t* numFiles);
-void FAT_Get_StartCluster(uint32_t* startSector, uint8_t selectedFile, uint8_t* startCluster);
+void FAT_Read_FileContent(uint32_t startCluster);
+void FAT_Get_StartCluster(uint32_t startSector, uint8_t selectedFile, uint32_t* startCluster);
 
+LinkedList_t* createLinkedList() 
+{
+    LinkedList_t* newLinkedList = (LinkedList_t*) malloc(sizeof(LinkedList_t));
+    newLinkedList->head = NULL;
+    return newLinkedList;
+}
+
+void removeHead(LinkedList_t* list) 
+{
+    if (list->head == NULL) 
+    {
+        printf("List is empty\n");
+        return;
+    }
+    Node_t* temp = list->head;
+    list->head = list->head->next;
+    free(temp);
+}
+
+void addToHead(LinkedList_t* list, uint16_t address) 
+{
+    Node_t* newHead = (Node_t*) malloc(sizeof(Node_t));
+    newHead->currentAddress = address;
+    newHead->next = list->head;
+    list->head = newHead;
+}
+
+void printList(LinkedList_t* list) 
+{
+    Node_t* currentNode = list->head;
+    while (currentNode!= NULL) 
+	{
+        printf("address: %d\t", currentNode->currentAddress);
+        currentNode = currentNode->next;
+    }
+}
+
+void freeLinkedList(LinkedList_t* list) 
+{
+    Node_t* currentHead = list->head;
+    while (currentHead!= NULL) 
+	{
+		Node_t* nextNode = currentHead->next;
+		free(currentHead);
+		currentHead = nextNode;
+	}
+	free(list);
+}
 
 // Open Disk
 void HAL_OpenDisk(const uint8_t *DiskPath)
@@ -100,21 +160,15 @@ void HAL_Read_Sector(uint32_t index, uint8_t *buffer)
 void FAT_Read_Directory(uint32_t startSector, uint8_t* numFiles)
 {
     uint8_t buffer[SECTOR_SIZE];
-    uint32_t rootDirSectorCount = ((BootData.root_dir_entries * 32) + (BootData.bytes_per_sector - 1)) / BootData.bytes_per_sector;
-    uint32_t rootDirStartSector = BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors);
-    fseek(ptr, rootDirStartSector * BootData.bytes_per_sector, SEEK_SET);
 
-    // (*numFiles) = 0;
+    HAL_Read_Sector(startSector, buffer);
+
+    uint8_t countNumFiles = 0;
     uint32_t j;
     for (j = 0; j < SECTOR_SIZE; j += 32)
     {
         if (buffer[j] == 0x2E)
         {
-            continue;
-        }
-
-        if (buffer[j + 1] == 0x2E)
-        {   
             continue;
         }
 
@@ -136,35 +190,60 @@ void FAT_Read_Directory(uint32_t startSector, uint8_t* numFiles)
             continue;
         }
 
-        (*numFiles)++;
+        countNumFiles++;
 
         readFat12Entry(&buffer[j], &entry);
         uint8_t filename[MAX_FILENAME_LENGTH + MAX_EXTENSION_LENGTH + 2];
         convertFilename(&buffer[j], filename, entry.extension);
 
-        printFat12Entry(&entry, *numFiles);
+        printFat12Entry(&entry, countNumFiles);
     }
+
+    (*numFiles) = countNumFiles;
 }
 
 void FAT_Read_FileContent(uint32_t startCluster)
 {
-    uint8_t buffer[entry.fileSize];
-    fseek(ptr, startCluster, SEEK_SET);
-    fread(buffer, entry.fileSize, 1, ptr);
-    printf("%s", buffer);
+    uint8_t buffer[SECTOR_SIZE];
+
+    fseek(ptr, startCluster * SECTOR_SIZE, SEEK_SET);
+
+    while (entry.fileSize > 0)
+    {
+        uint32_t bytesRead = fread(buffer, sizeof(uint8_t), SECTOR_SIZE, ptr);
+        if (bytesRead == 0)
+        {
+            printf("End of File\n");
+            break;
+        }
+
+        // Print the buffer content to the console
+        uint32_t printSize = (entry.fileSize < bytesRead) ? entry.fileSize : bytesRead;
+
+        uint32_t i;
+        for (i = 0; i < printSize; i++)
+        {
+            printf("%c", buffer[i]);
+        }
+        entry.fileSize -= printSize;
+
+        if (entry.fileSize == 0) break;
+    }
+    printf("\n");
 }
 
-void FAT_Get_StartCluster(uint32_t* startSector, uint8_t selectedFile, uint8_t* startCluster)
+void FAT_Get_StartCluster(uint32_t startSector, uint8_t selectedFile, uint32_t* startCluster)
 {
     uint8_t buffer[SECTOR_SIZE];
-    HAL_Read_Sector((*startSector), buffer);
+
+    HAL_Read_Sector(startSector, buffer);
 
     uint32_t i = 0;
     uint32_t j = 0;
 
     while (j < selectedFile)
     {
-        if (buffer[i + 11] == 0x0F || buffer[i] == 0xE5)
+        if (buffer[i + 11] == 0x0F || buffer[i] == 0xE5 || buffer[i] == 0x2E)
         {
             i += 32;
             continue;
@@ -181,11 +260,13 @@ void FAT_Get_StartCluster(uint32_t* startSector, uint8_t selectedFile, uint8_t* 
         i += 32;
     }
 
-    readFat12Entry(&buffer[i], &entry);
-
     if (entry.attributes & 0x10)
     {
         entry.isDirectory = true;
+    }
+    else
+    {
+        entry.isDirectory = false;
     }
 
     uint32_t data_region_start_sector = BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors) + (BootData.root_dir_entries * 32 / BootData.bytes_per_sector);
@@ -194,41 +275,51 @@ void FAT_Get_StartCluster(uint32_t* startSector, uint8_t selectedFile, uint8_t* 
 
 void Menu()
 {
-    uint8_t selectedFile = -1;
+    LinkedList_t* list = createLinkedList();
+    
     uint8_t numFiles = 0;
-    uint8_t startCluster;
+    uint32_t startCluster;
 
     HAL_OpenDisk("C://Study//Embedded Develop//C-MockProject//floppy.img");
 
     HAL_Read_Sector(0, &BootData);
 
-    uint32_t rootDirStartSector = BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors); // 19
+    uint32_t rootDirStartSector = BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors);
     //Read RootDir
     FAT_Read_Directory(rootDirStartSector, &numFiles);
-    // printf("%d", numFiles);
+
+    
+    addToHead(list, rootDirStartSector);                    //Add rootDir address to HEAD
+    uint32_t currentAddress = list->head->currentAddress;   //Get current address value from HEAD
 
     while (1)
     {
+        uint8_t selectedFile = -1;
+
         while (selectedFile <= 0 || selectedFile > numFiles)
         {
             printf("Please select a file or folder: ");
             scanf(" %d", &selectedFile);
 
-            if (selectedFile < 0 || selectedFile >= numFiles)
+            if (selectedFile <= 0 || selectedFile > numFiles)
             {
                 printf("Invalid selection.\n");
                 break;
             }
 
-            FAT_Get_StartCluster(&rootDirStartSector, selectedFile, &startCluster);
-            
+            FAT_Get_StartCluster(currentAddress, selectedFile, &startCluster);      //Pass current Address of HEAD to search selected entry of the current folder to get start cluster
+
+            addToHead(list, startCluster);                                          //Add the start cluster of selected entry to HEAD
+        
+            currentAddress = list->head->currentAddress;                            //Reset currentAddress to new current HEAD
+      
             if (entry.isDirectory)
-            {
-                FAT_Read_Directory(startCluster, &numFiles);
+            {   
+                FAT_Read_Directory(currentAddress, &numFiles);                      //if its a folder, pass current cluster to read all its entries
             }
             else
-            {
-                FAT_Read_FileContent(startCluster);
+            {   
+                FAT_Read_FileContent(currentAddress);                               //if its a file, pass current cluster to read all its content
             }
         } 
     }
@@ -316,6 +407,7 @@ void printFat12Entry(Fat12Entry *entry, uint8_t numFiles)
     printf("%04d-%02d-%02d %02d:%02d:%02d\t",
            entry->lastModifiedTime.year, entry->lastModifiedTime.month, entry->lastModifiedTime.day,
            entry->lastModifiedTime.hour, entry->lastModifiedTime.minute, entry->lastModifiedTime.second);
+    printf("%x\t", entry->startCluster);
     if (entry->fileSize != 0)
     {
         printf("%lub\n", entry->fileSize);
