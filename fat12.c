@@ -110,16 +110,6 @@ void addToHead(LinkedList_t *list, uint16_t address)
     list->head = newHead;
 }
 
-void printList(LinkedList_t *list)
-{
-    Node_t *currentNode = list->head;
-    while (currentNode != NULL)
-    {
-        printf("address: %d\t", currentNode->currentAddress);
-        currentNode = currentNode->next;
-    }
-}
-
 void freeLinkedList(LinkedList_t *list)
 {
     Node_t *currentHead = list->head;
@@ -140,6 +130,7 @@ void HAL_OpenDisk(const uint8_t *DiskPath)
     if (ptr == NULL)
     {
         printf("Error: could not open file.\n");
+        exit(0);
     }
 }
 
@@ -159,9 +150,12 @@ void HAL_Read_Sector(uint32_t index, uint8_t *buffer)
 
 void FAT_Read_Directory(uint32_t startSector, uint8_t *numFiles)
 {
+    printf("\n");
     uint8_t buffer[SECTOR_SIZE];
 
     HAL_Read_Sector(startSector, buffer);
+
+    printf("| Filename |\t| Extension |\t| Creation Date |\t| Last Access Date |\t| Last Write Date |\t| File Size |\n\n");
 
     uint8_t countNumFiles = 0;
     uint32_t j;
@@ -199,13 +193,26 @@ void FAT_Read_Directory(uint32_t startSector, uint8_t *numFiles)
         printFat12Entry(&entry, countNumFiles);
     }
 
+    if (buffer[0] == 0x2E && buffer[33] == 0x2E && j <= 64)
+    {
+        printf("This Folder is empty. Please go back.\n");
+    }
+
     (*numFiles) = countNumFiles;
+    printf("\n");
 }
 
 void FAT_Read_FileContent(uint32_t startCluster)
 {
-    uint8_t buffer[SECTOR_SIZE];
+    printf("\n");
 
+    if (entry.fileSize == 0)
+    {
+        printf("This file is empty. Please go back.\n");
+        return;
+    }
+
+    uint8_t buffer[SECTOR_SIZE];
     fseek(ptr, startCluster * SECTOR_SIZE, SEEK_SET);
 
     while (entry.fileSize > 0)
@@ -213,7 +220,7 @@ void FAT_Read_FileContent(uint32_t startCluster)
         uint32_t bytesRead = fread(buffer, sizeof(uint8_t), SECTOR_SIZE, ptr);
         if (bytesRead == 0)
         {
-            printf("End of File\n");
+            printf("Error\n");
             break;
         }
 
@@ -221,16 +228,24 @@ void FAT_Read_FileContent(uint32_t startCluster)
         uint32_t printSize = (entry.fileSize < bytesRead) ? entry.fileSize : bytesRead;
 
         uint32_t i;
+        
         for (i = 0; i < printSize; i++)
         {
             printf("%c", buffer[i]);
         }
+
         entry.fileSize -= printSize;
 
         if (entry.fileSize == 0)
             break;
     }
+
     printf("\n");
+    printf("\n");
+}
+
+void clearScreen() {
+    system("cls");
 }
 
 void FAT_Get_StartCluster(uint32_t startSector, uint8_t selectedFile, uint32_t *startCluster)
@@ -285,11 +300,13 @@ void Menu()
 
     HAL_Read_Sector(0, &BootData);
 
-    uint32_t rootDirStartSector = BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors);
+    printf("FAT Type: %.5s\n", BootData.fs_type);
     // Read RootDir
+    uint32_t rootDirStartSector = BootData.reserved_sectors + (BootData.number_of_fats * BootData.fat_size_sectors);
     FAT_Read_Directory(rootDirStartSector, &numFiles);
 
     addToHead(list, rootDirStartSector);                  // Add rootDir address to HEAD
+
     uint32_t currentAddress = list->head->currentAddress; // Get current address value from HEAD
 
     while (1)
@@ -298,9 +315,9 @@ void Menu()
 
         while (selectedFile < 0 || selectedFile > numFiles)
         {
+                     
             printf("Please select a file or folder (or Press 0 to go back): ");
             scanf(" %d", &selectedFile);
-
             if (selectedFile < 0 || selectedFile > numFiles)
             {
                 printf("Invalid selection.\n");
@@ -309,9 +326,10 @@ void Menu()
 
             if (selectedFile == 0)
             {
+                clearScreen();
                 if (currentAddress == rootDirStartSector) //if user are currently on root dir, break the loop
                 {
-                    printf("Cant go back further!.\n");
+                    printf("You are in Root Folder. Cant go back further!.\n");
                     break;
                 }
 
@@ -322,6 +340,7 @@ void Menu()
             }
             else
             {
+                clearScreen();
                 FAT_Get_StartCluster(currentAddress, selectedFile, &startCluster); // Pass current Address of HEAD to search selected entry of the current folder to get start cluster
 
                 addToHead(list, startCluster); // Add the start cluster of selected entry to HEAD
@@ -335,6 +354,7 @@ void Menu()
                 else
                 {
                     FAT_Read_FileContent(currentAddress); // if its a file, pass current cluster to read all its content
+                    numFiles = 0;
                 }
             }
         }
@@ -407,23 +427,24 @@ void convertFilename(uint8_t *name, uint8_t *filename, uint8_t *extension)
 void printFat12Entry(Fat12Entry *entry, uint8_t numFiles)
 {
     printf("%d/ ", numFiles);
-    printf("%s.%s\t", entry->filename, entry->extension);
-    printf("%c%c%c%c%c\t",
-           (entry->attributes & 0x10) ? 'D' : '-',
-           (entry->attributes & 0x01) ? 'R' : '-',
-           (entry->attributes & 0x02) ? 'H' : '-',
-           (entry->attributes & 0x04) ? 'S' : '-',
-           (entry->attributes & 0x08) ? 'A' : '-');
+    printf("%s\t\t", entry->filename);
+    if (entry->attributes & 0x10)
+    {
+        printf("FILE FOLDER\t");
+    }
+    else
+    {
+        printf("FILE %s\t", entry->extension);
+    }
     printf("%04d-%02d-%02d %02d:%02d:%02d\t",
            entry->creationTime.year, entry->creationTime.month, entry->creationTime.day,
            entry->creationTime.hour, entry->creationTime.minute, entry->creationTime.second);
     printf("%04d-%02d-%02d %02d:%02d:%02d\t",
            entry->lastAccessTime.year, entry->lastAccessTime.month, entry->lastAccessTime.day,
            entry->lastAccessTime.hour, entry->lastAccessTime.minute, entry->lastAccessTime.second);
-    printf("%04d-%02d-%02d %02d:%02d:%02d\t",
+    printf("%04d-%02d-%02d %02d:%02d:%02d\t\t",
            entry->lastModifiedTime.year, entry->lastModifiedTime.month, entry->lastModifiedTime.day,
            entry->lastModifiedTime.hour, entry->lastModifiedTime.minute, entry->lastModifiedTime.second);
-    printf("%x\t", entry->startCluster);
     if (entry->fileSize != 0)
     {
         printf("%lub\n", entry->fileSize);
