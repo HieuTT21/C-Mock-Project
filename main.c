@@ -1,9 +1,9 @@
 #include "hal.h"
 #include "fat.h"
 
-void main()
+void main(int argc, char *argv[])
 {
-	if ( DISK_OK == HAL_OpenDisk("C://Study//Embedded Develop//C-MockProject//floppy.img"))
+	if ( DISK_OK == HAL_OpenDisk(argv[1]))
 	{
 		Menu();
 	}
